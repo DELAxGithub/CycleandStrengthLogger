@@ -11,6 +11,15 @@ type StrengthWorkout = Extract<EnrichedWorkout, { type: "strength" }>;
 
 type CyclingWorkout = Extract<EnrichedWorkout, { type: "cycling" }>;
 
+type AnalysisSummary = {
+  totalWorkouts: number;
+  totalDurationMinutes: number;
+  totalStrengthSets: number;
+  averagePower: number | null;
+  averageHeartRate: number | null;
+  wattsPerHeartRate: number | null;
+};
+
 function formatDateTime(timestamp: number) {
   return new Date(timestamp).toLocaleString("ja-JP", {
     year: "numeric",
@@ -40,12 +49,12 @@ function formatDuration(seconds: number) {
 function formatCyclingSummary(workout: CyclingWorkout) {
   const parts = [formatDuration(workout.durationSeconds)];
 
-  if (typeof workout.distanceKm === "number") {
-    parts.push(`${workout.distanceKm.toFixed(1)} km`);
-  }
-
   if (typeof workout.avgPower === "number") {
     parts.push(`${Math.round(workout.avgPower)} W`);
+  }
+
+  if (typeof workout.avgHeartRate === "number") {
+    parts.push(`${Math.round(workout.avgHeartRate)} bpm`);
   }
 
   if (typeof workout.perceivedEffort === "number") {
@@ -57,7 +66,9 @@ function formatCyclingSummary(workout: CyclingWorkout) {
 
 function formatStrengthSummary(workout: StrengthWorkout) {
   const exerciseCount = new Set(
-    workout.strengthSets.map((set) => set.exerciseName)
+    workout.strengthSets.map(
+      (set: StrengthWorkout["strengthSets"][number]) => set.exerciseName
+    )
   ).size;
   const totalSets = workout.strengthSets.length;
 
@@ -88,6 +99,55 @@ function formatStrengthSummary(workout: StrengthWorkout) {
   return parts.join(" · ");
 }
 
+function buildAnalysis(workouts: EnrichedWorkout[]): AnalysisSummary {
+  let totalWorkouts = 0;
+  let totalDurationMinutes = 0;
+  let totalStrengthSets = 0;
+  let totalPower = 0;
+  let powerSamples = 0;
+  let totalHeartRate = 0;
+  let heartRateSamples = 0;
+
+  for (const workout of workouts) {
+    totalWorkouts += 1;
+    totalDurationMinutes += Math.round(workout.durationSeconds / 60);
+
+    if (workout.type === "strength") {
+      totalStrengthSets += workout.strengthSets.length;
+    }
+
+    if (workout.type === "cycling") {
+      if (typeof workout.avgPower === "number") {
+        totalPower += workout.avgPower;
+        powerSamples += 1;
+      }
+
+      if (typeof workout.avgHeartRate === "number") {
+        totalHeartRate += workout.avgHeartRate;
+        heartRateSamples += 1;
+      }
+    }
+  }
+
+  const averagePower =
+    powerSamples > 0 ? Math.round(totalPower / powerSamples) : null;
+  const averageHeartRate =
+    heartRateSamples > 0 ? Math.round(totalHeartRate / heartRateSamples) : null;
+  const wattsPerHeartRate =
+    averagePower != null && averageHeartRate != null && averageHeartRate > 0
+      ? Number((averagePower / averageHeartRate).toFixed(2))
+      : null;
+
+  return {
+    totalWorkouts,
+    totalDurationMinutes,
+    totalStrengthSets,
+    averagePower,
+    averageHeartRate,
+    wattsPerHeartRate,
+  };
+}
+
 export default function HomePage() {
   const { signIn, signOut } = useAuthActions();
   const profile = useQuery(api.users.getCurrentProfile);
@@ -98,42 +158,10 @@ export default function HomePage() {
   const isAuthenticated = profile != null;
   const derivedWorkouts = (workouts ?? []) as EnrichedWorkout[];
 
-  const analysis = useMemo(() => {
-    if (!derivedWorkouts.length) {
-      return {
-        totalWorkouts: 0,
-        totalDurationMinutes: 0,
-        totalCyclingDistance: 0,
-        totalStrengthSets: 0,
-      };
-    }
-
-    return derivedWorkouts.reduce(
-      (acc, workout) => {
-        acc.totalWorkouts += 1;
-        acc.totalDurationMinutes += Math.round(workout.durationSeconds / 60);
-
-        if (
-          workout.type === "cycling" &&
-          typeof workout.distanceKm === "number"
-        ) {
-          acc.totalCyclingDistance += workout.distanceKm;
-        }
-
-        if (workout.type === "strength") {
-          acc.totalStrengthSets += workout.strengthSets.length;
-        }
-
-        return acc;
-      },
-      {
-        totalWorkouts: 0,
-        totalDurationMinutes: 0,
-        totalCyclingDistance: 0,
-        totalStrengthSets: 0,
-      }
-    );
-  }, [derivedWorkouts]);
+  const analysis = useMemo(
+    () => buildAnalysis(derivedWorkouts),
+    [derivedWorkouts]
+  );
 
   const headerTitle = profile?.displayName
     ? `${profile.displayName} さんのダッシュボード`
@@ -380,9 +408,27 @@ export default function HomePage() {
               </dd>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-              <dt className="font-medium text-slate-700">サイクリング距離</dt>
+              <dt className="font-medium text-slate-700">平均パワー</dt>
               <dd className="font-semibold text-base text-slate-900">
-                {analysis.totalCyclingDistance.toFixed(1)} km
+                {analysis.averagePower != null
+                  ? `${analysis.averagePower} W`
+                  : "-"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <dt className="font-medium text-slate-700">平均心拍</dt>
+              <dd className="font-semibold text-base text-slate-900">
+                {analysis.averageHeartRate != null
+                  ? `${analysis.averageHeartRate} bpm`
+                  : "-"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <dt className="font-medium text-slate-700">平均W／HR</dt>
+              <dd className="font-semibold text-base text-slate-900">
+                {analysis.wattsPerHeartRate != null
+                  ? `${analysis.wattsPerHeartRate} W/bpm`
+                  : "-"}
               </dd>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
