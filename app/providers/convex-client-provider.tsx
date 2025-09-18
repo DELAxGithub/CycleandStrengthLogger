@@ -43,9 +43,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    return new ConvexReactClient(convexUrl, {
-      unsafelyIgnoreCertificateErrorsInDevelopment: true,
-    });
+    return new ConvexReactClient(convexUrl);
   }, []);
 
   if (!client) {
