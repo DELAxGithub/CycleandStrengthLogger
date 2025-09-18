@@ -283,15 +283,30 @@ export default function NewWorkoutPage() {
     }
 
     const exercises = strengthForm.exercises
-      .map((exercise) => ({
-        name: exercise.name.trim(),
-        sets: exercise.sets
-          .map((set) => ({
-            weightKg: parseFloatOrNull(set.weightKg) ?? undefined,
-            reps: parseIntOrNull(set.reps),
-          }))
-          .filter((set) => typeof set.reps === "number"),
-      }))
+      .map((exercise) => {
+        const trimmedName = exercise.name.trim();
+        const sets = exercise.sets
+          .map((set) => {
+            const reps = parseIntOrNull(set.reps);
+            if (reps == null) {
+              return null;
+            }
+
+            return {
+              weightKg: parseFloatOrNull(set.weightKg) ?? undefined,
+              reps,
+            };
+          })
+          .filter(
+            (set): set is { weightKg: number | undefined; reps: number } =>
+              set !== null
+          );
+
+        return {
+          name: trimmedName,
+          sets,
+        };
+      })
       .filter(
         (exercise) => exercise.name.length > 0 && exercise.sets.length > 0
       );
