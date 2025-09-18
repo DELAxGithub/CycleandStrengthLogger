@@ -25,8 +25,8 @@ export default defineSchema({
     durationSeconds: v.number(),
     perceivedEffort: v.optional(v.number()),
     memo: v.optional(v.string()),
-    distanceKm: v.optional(v.number()),
     avgPower: v.optional(v.number()),
+    avgHeartRate: v.optional(v.number()),
     elevationGain: v.optional(v.number()),
   })
     .index("by_user_performedAt", ["userId", "performedAt"])

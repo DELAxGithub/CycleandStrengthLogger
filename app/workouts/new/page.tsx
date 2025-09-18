@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 
 const MILLISECONDS_PER_MINUTE = 60_000;
@@ -13,7 +13,8 @@ const DEFAULT_STRENGTH_RPE = 6;
 const MIN_DURATION_MINUTES = 1;
 const MIN_RPE = 1;
 const MAX_RPE = 10;
-const DISTANCE_STEP_KILOMETER = 0.1;
+const MIN_HEART_RATE = 30;
+const MAX_HEART_RATE = 240;
 const WEIGHT_STEP_KILOGRAM = 0.5;
 const NON_NEGATIVE_VALUE = 0;
 const DEFAULT_EXERCISE_NAME = "スクワット";
@@ -23,6 +24,8 @@ const MIN_REPETITIONS = 1;
 const RANDOM_BASE = 36;
 const RANDOM_SLICE_INDEX = 2;
 const DATETIME_LOCAL_LENGTH = 16;
+const STRENGTH_TEMPLATE_STORAGE_KEY =
+  "cycle-strength-logger:last-strength-template";
 
 type StrengthSetForm = {
   id: string;
@@ -35,6 +38,53 @@ type StrengthExerciseForm = {
   name: string;
   sets: StrengthSetForm[];
 };
+
+type StoredStrengthTemplate = {
+  perceivedEffort?: string;
+  exercises: Array<{
+    id?: string;
+    name?: string;
+    sets: Array<{
+      id?: string;
+      weightKg?: string;
+      reps?: string;
+    }>;
+  }>;
+};
+
+function isStoredStrengthTemplate(
+  value: unknown
+): value is StoredStrengthTemplate {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  if (!("exercises" in value)) {
+    return false;
+  }
+
+  const exercises = (value as { exercises: unknown }).exercises;
+  if (!Array.isArray(exercises)) {
+    return false;
+  }
+
+  return exercises.every((exercise) => {
+    if (typeof exercise !== "object" || exercise === null) {
+      return false;
+    }
+
+    if (!("sets" in exercise)) {
+      return false;
+    }
+
+    const sets = (exercise as { sets: unknown }).sets;
+    if (!Array.isArray(sets)) {
+      return false;
+    }
+
+    return sets.every((set) => typeof set === "object" && set !== null);
+  });
+}
 
 function generateId() {
   if (
@@ -87,8 +137,8 @@ export default function NewWorkoutPage() {
   const [cyclingForm, setCyclingForm] = useState({
     performedAt: defaultDateTimeLocal(),
     durationMinutes: DEFAULT_DURATION_MINUTES.toString(),
-    distanceKm: "",
     avgPower: "",
+    avgHeartRate: "",
     elevationGain: "",
     perceivedEffort: DEFAULT_CYCLING_RPE.toString(),
     memo: "",
@@ -132,6 +182,48 @@ export default function NewWorkoutPage() {
     return null;
   })();
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(STRENGTH_TEMPLATE_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const parsed: unknown = JSON.parse(raw);
+      if (!isStoredStrengthTemplate(parsed)) {
+        return;
+      }
+
+      const template = parsed;
+
+      const exercises = template.exercises.map((exercise) => ({
+        id: exercise.id ?? generateId(),
+        name: exercise.name ?? "",
+        sets: exercise.sets.map((set) => ({
+          id: set.id ?? generateId(),
+          weightKg: set.weightKg ?? "",
+          reps: set.reps ?? "",
+        })),
+      }));
+
+      if (exercises.length === 0) {
+        return;
+      }
+
+      setStrengthForm((current) => ({
+        ...current,
+        perceivedEffort: template.perceivedEffort ?? current.perceivedEffort,
+        exercises,
+      }));
+    } catch (_error) {
+      // 無効なテンプレートは無視してデフォルト値を使用する。
+    }
+  }, []);
+
   const handleCyclingSubmit = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
@@ -155,8 +247,8 @@ export default function NewWorkoutPage() {
       await createCyclingWorkout({
         performedAt: timestamp,
         durationSeconds: Math.round(durationMinutes * SECONDS_PER_MINUTE),
-        distanceKm: parseFloatOrNull(cyclingForm.distanceKm) ?? undefined,
         avgPower: parseFloatOrNull(cyclingForm.avgPower) ?? undefined,
+        avgHeartRate: parseFloatOrNull(cyclingForm.avgHeartRate) ?? undefined,
         elevationGain: parseFloatOrNull(cyclingForm.elevationGain) ?? undefined,
         perceivedEffort:
           parseFloatOrNull(cyclingForm.perceivedEffort) ?? undefined,
@@ -222,6 +314,26 @@ export default function NewWorkoutPage() {
       });
 
       setStrengthStatus("筋力トレーニングの記録を保存しました");
+
+      if (typeof window !== "undefined") {
+        const templateToStore = {
+          perceivedEffort: strengthForm.perceivedEffort,
+          exercises: strengthForm.exercises.map((exercise) => ({
+            id: exercise.id,
+            name: exercise.name,
+            sets: exercise.sets.map((set) => ({
+              id: set.id,
+              weightKg: set.weightKg,
+              reps: set.reps,
+            })),
+          })),
+        } satisfies Pick<typeof strengthForm, "perceivedEffort" | "exercises">;
+
+        window.localStorage.setItem(
+          STRENGTH_TEMPLATE_STORAGE_KEY,
+          JSON.stringify(templateToStore)
+        );
+      }
     } catch (_error) {
       setStrengthStatus("保存に失敗しました。数秒後に再度お試しください。");
     }
@@ -323,7 +435,7 @@ export default function NewWorkoutPage() {
             サイクリング
           </h2>
           <p className="text-slate-600 text-sm">
-            走行距離や平均パワーなどの指標を入力できます。サインイン済みであれば送信ボタンが有効化されます。
+            平均パワーや平均心拍などの指標を入力できます。サインイン済みであれば送信ボタンが有効化されます。
           </p>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-slate-800">実施日時</span>
@@ -358,19 +470,19 @@ export default function NewWorkoutPage() {
           </label>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="flex flex-col gap-1 text-sm">
-              <span className="font-medium text-slate-800">走行距離 (km)</span>
+              <span className="font-medium text-slate-800">平均心拍 (bpm)</span>
               <input
                 className="rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-slate-500 focus:outline-none"
-                min={NON_NEGATIVE_VALUE}
+                max={MAX_HEART_RATE}
+                min={MIN_HEART_RATE}
                 onChange={(event) =>
                   setCyclingForm((current) => ({
                     ...current,
-                    distanceKm: event.target.value,
+                    avgHeartRate: event.target.value,
                   }))
                 }
-                step={DISTANCE_STEP_KILOMETER}
                 type="number"
-                value={cyclingForm.distanceKm}
+                value={cyclingForm.avgHeartRate}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
