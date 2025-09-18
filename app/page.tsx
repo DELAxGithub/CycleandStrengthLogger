@@ -1,103 +1,427 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useAuthActions } from "@convex-dev/auth/react";
+import { useQuery } from "convex/react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { api } from "@/convex/_generated/api";
+import type { EnrichedWorkout } from "@/convex/workouts";
+
+type StrengthWorkout = Extract<EnrichedWorkout, { type: "strength" }>;
+
+type CyclingWorkout = Extract<EnrichedWorkout, { type: "cycling" }>;
+
+function formatDateTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDuration(seconds: number) {
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) {
+    return `${minutes}分`;
+  }
+
+  if (minutes === 0) {
+    return `${hours}時間`;
+  }
+
+  return `${hours}時間${minutes}分`;
+}
+
+function formatCyclingSummary(workout: CyclingWorkout) {
+  const parts = [formatDuration(workout.durationSeconds)];
+
+  if (typeof workout.distanceKm === "number") {
+    parts.push(`${workout.distanceKm.toFixed(1)} km`);
+  }
+
+  if (typeof workout.avgPower === "number") {
+    parts.push(`${Math.round(workout.avgPower)} W`);
+  }
+
+  if (typeof workout.perceivedEffort === "number") {
+    parts.push(`RPE ${workout.perceivedEffort}`);
+  }
+
+  return parts.join(" · ");
+}
+
+function formatStrengthSummary(workout: StrengthWorkout) {
+  const exerciseCount = new Set(
+    workout.strengthSets.map((set) => set.exerciseName)
+  ).size;
+  const totalSets = workout.strengthSets.length;
+
+  let topSet: number | null = null;
+  for (const set of workout.strengthSets) {
+    if (
+      typeof set.weightKg === "number" &&
+      (topSet === null || topSet < set.weightKg)
+    ) {
+      topSet = set.weightKg;
+    }
+  }
+
+  const parts = [
+    formatDuration(workout.durationSeconds),
+    `${exerciseCount}種目`,
+    `${totalSets}セット`,
+  ];
+
+  if (topSet !== null) {
+    parts.push(`最大 ${topSet.toFixed(1)} kg`);
+  }
+
+  if (typeof workout.perceivedEffort === "number") {
+    parts.push(`RPE ${workout.perceivedEffort}`);
+  }
+
+  return parts.join(" · ");
+}
+
+export default function HomePage() {
+  const { signIn, signOut } = useAuthActions();
+  const profile = useQuery(api.users.getCurrentProfile);
+  const workouts = useQuery(api.workouts.listRecent, { limit: 12 });
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+
+  const isAuthLoading = profile === undefined;
+  const isAuthenticated = profile != null;
+  const derivedWorkouts = (workouts ?? []) as EnrichedWorkout[];
+
+  const analysis = useMemo(() => {
+    if (!derivedWorkouts.length) {
+      return {
+        totalWorkouts: 0,
+        totalDurationMinutes: 0,
+        totalCyclingDistance: 0,
+        totalStrengthSets: 0,
+      };
+    }
+
+    return derivedWorkouts.reduce(
+      (acc, workout) => {
+        acc.totalWorkouts += 1;
+        acc.totalDurationMinutes += Math.round(workout.durationSeconds / 60);
+
+        if (
+          workout.type === "cycling" &&
+          typeof workout.distanceKm === "number"
+        ) {
+          acc.totalCyclingDistance += workout.distanceKm;
+        }
+
+        if (workout.type === "strength") {
+          acc.totalStrengthSets += workout.strengthSets.length;
+        }
+
+        return acc;
+      },
+      {
+        totalWorkouts: 0,
+        totalDurationMinutes: 0,
+        totalCyclingDistance: 0,
+        totalStrengthSets: 0,
+      }
+    );
+  }, [derivedWorkouts]);
+
+  const headerTitle = profile?.displayName
+    ? `${profile.displayName} さんのダッシュボード`
+    : "Cycle & Strength Logger";
+
+  const handleSignIn = async (provider: "google" | "apple" | "anonymous") => {
+    try {
+      setAuthMessage(null);
+      await signIn(provider);
+    } catch (_error) {
+      if (provider === "anonymous") {
+        setAuthMessage("匿名ログインに失敗しました。再度お試しください。");
+        return;
+      }
+
+      setAuthMessage(
+        provider === "google"
+          ? "Googleでのサインインに失敗しました。環境変数の設定を確認してください。"
+          : "Appleでのサインインに失敗しました。環境変数の設定を確認してください。"
+      );
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      setAuthMessage(null);
+      await signOut();
+    } catch (_error) {
+      setAuthMessage(
+        "サインアウト中に問題が発生しました。数秒後に再度お試しください。"
+      );
+    }
+  };
+
+  const firstStrengthWorkout = derivedWorkouts.find(
+    (workout): workout is StrengthWorkout => workout?.type === "strength"
+  );
+
+  const firstCyclingWorkout = derivedWorkouts.find(
+    (workout): workout is CyclingWorkout => workout?.type === "cycling"
+  );
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-10 px-6 py-12">
+      <header className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <p className="font-semibold text-slate-500 text-xs uppercase tracking-wide">
+              Cycle & Strength Logger
+            </p>
+            <h1 className="font-semibold text-3xl text-slate-900">
+              {headerTitle}
+            </h1>
+            <p className="text-slate-600 text-sm">
+              サイクリングと筋力トレーニングを一元管理し、リアルタイムで分析します。
+              Convex + Next.js + Ultracite のワークフローで構築中です。
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2 text-right">
+            {(() => {
+              if (isAuthLoading) {
+                return (
+                  <span className="text-slate-500 text-xs">
+                    サインイン状態を確認しています…
+                  </span>
+                );
+              }
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+              if (isAuthenticated) {
+                return (
+                  <>
+                    <button
+                      className="inline-flex items-center justify-center rounded-full border border-slate-300 px-3 py-1.5 font-medium text-slate-700 text-sm hover:border-slate-400 hover:text-slate-900"
+                      onClick={handleSignOut}
+                      type="button"
+                    >
+                      サインアウト
+                    </button>
+                    {profile?.email ? (
+                      <span className="text-slate-500 text-xs">
+                        {profile.email}
+                      </span>
+                    ) : null}
+                  </>
+                );
+              }
+
+              return (
+                <div className="flex flex-col items-end gap-2">
+                  <button
+                    className="inline-flex items-center justify-center rounded-full border border-slate-300 px-3 py-1.5 font-medium text-slate-700 text-sm transition hover:border-slate-400 hover:text-slate-900"
+                    onClick={() => handleSignIn("anonymous")}
+                    type="button"
+                  >
+                    匿名でサインイン
+                  </button>
+                  <div className="flex flex-wrap items-center justify-end gap-2 text-slate-400 text-xs">
+                    <button
+                      className="rounded-full border border-slate-300 px-3 py-1 hover:border-slate-400 hover:text-slate-900"
+                      onClick={() => handleSignIn("google")}
+                      type="button"
+                    >
+                      Googleで試す
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-300 px-3 py-1 hover:border-slate-400 hover:text-slate-900"
+                      onClick={() => handleSignIn("apple")}
+                      type="button"
+                    >
+                      Appleで試す
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        {authMessage ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700 text-xs">
+            {authMessage}
+          </p>
+        ) : null}
+      </header>
+
+      <section className="grid gap-6 md:grid-cols-3">
+        <article className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-base text-slate-900">
+            オンボーディング
+          </h2>
+          <p className="mt-2 text-slate-600 text-sm">
+            初回ログイン後はプロフィールで表示名とトレーニングのフォーカスを設定しましょう。
+            Convex Auth でセッション管理を行い、ユーザー情報は Convex
+            テーブルに保存されます。
+          </p>
+          <Link
+            className="mt-4 inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 font-medium text-sm text-white transition hover:bg-slate-700"
+            href="/profile"
+          >
+            プロフィール設定へ
+          </Link>
+        </article>
+        <article className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm md:col-span-2">
+          <h2 className="font-semibold text-base text-slate-900">
+            クイックログ
+          </h2>
+          <p className="mt-2 text-slate-600 text-sm">
+            Cycling と Strength の専用フォームを用意しました。Convex Mutation
+            を通じて リアルタイムでワークアウトを保存します。
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 font-medium text-slate-700 text-sm transition hover:border-slate-400 hover:text-slate-900"
+              href="/workouts/new?type=cycling"
+            >
+              サイクリングを記録
+            </Link>
+            <Link
+              className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 font-medium text-slate-700 text-sm transition hover:border-slate-400 hover:text-slate-900"
+              href="/workouts/new?type=strength"
+            >
+              筋トレを記録
+            </Link>
+          </div>
+        </article>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <article className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-base text-slate-900">
+              直近のワークアウト
+            </h2>
+            <span className="font-medium text-slate-500 text-xs uppercase tracking-wide">
+              Convex Query
+            </span>
+          </div>
+          <p className="mt-2 text-slate-600 text-sm">
+            `workouts.listRecent` を `useQuery` で購読し、最新 12
+            件を表示しています。 サインイン前は空のリストが返ります。
+          </p>
+          <div className="mt-4 space-y-3">
+            {workouts === undefined && (
+              <div className="animate-pulse rounded-lg border border-slate-100 bg-slate-50 px-4 py-6 text-slate-400 text-sm">
+                データを取得しています…
+              </div>
+            )}
+            {workouts !== undefined && derivedWorkouts.length === 0 && (
+              <div className="rounded-lg border border-slate-200 border-dashed bg-slate-50 px-4 py-6 text-center text-slate-500 text-sm">
+                まだワークアウトが登録されていません。まずは1件記録してみましょう。
+              </div>
+            )}
+            {workouts !== undefined &&
+              derivedWorkouts.length > 0 &&
+              derivedWorkouts.map((workout) => (
+                <div
+                  className="flex flex-col gap-2 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                  key={workout._id}
+                >
+                  <div className="flex flex-col gap-1">
+                    <p className="font-medium text-slate-900 text-sm">
+                      {formatDateTime(workout.performedAt)}
+                    </p>
+                    <p className="text-slate-500 text-xs">
+                      {workout.type === "cycling"
+                        ? formatCyclingSummary(workout as CyclingWorkout)
+                        : formatStrengthSummary(workout as StrengthWorkout)}
+                    </p>
+                    {workout.memo ? (
+                      <p className="text-slate-400 text-xs">{workout.memo}</p>
+                    ) : null}
+                  </div>
+                  <span className="self-start rounded-full bg-slate-900 px-3 py-1 font-semibold text-white text-xs uppercase tracking-wide md:self-center">
+                    {workout.type === "cycling" ? "Cycling" : "Strength"}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </article>
+
+        <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-base text-slate-900">
+            分析サマリー
+          </h2>
+          <p className="text-slate-600 text-sm">
+            Convex
+            の集計ロジックをこれから実装予定です。暫定的にダッシュボードで
+            合計値を算出しています。
+          </p>
+          <dl className="grid gap-3 text-slate-600 text-sm">
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <dt className="font-medium text-slate-700">
+                記録済みワークアウト
+              </dt>
+              <dd className="font-semibold text-base text-slate-900">
+                {analysis.totalWorkouts}件
+              </dd>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <dt className="font-medium text-slate-700">
+                合計トレーニング時間
+              </dt>
+              <dd className="font-semibold text-base text-slate-900">
+                {analysis.totalDurationMinutes}分
+              </dd>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <dt className="font-medium text-slate-700">サイクリング距離</dt>
+              <dd className="font-semibold text-base text-slate-900">
+                {analysis.totalCyclingDistance.toFixed(1)} km
+              </dd>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <dt className="font-medium text-slate-700">筋トレセット数</dt>
+              <dd className="font-semibold text-base text-slate-900">
+                {analysis.totalStrengthSets} セット
+              </dd>
+            </div>
+          </dl>
+          <div className="rounded-lg border border-slate-200 border-dashed px-4 py-3 text-slate-500 text-xs">
+            <p>予定:</p>
+            <ul className="mt-1 list-disc pl-4">
+              <li>週次サマリー・月次サマリー</li>
+              <li>パワーゾーン別のサイクリング分析</li>
+              <li>種目別のトップセット推移</li>
+            </ul>
+          </div>
+          <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-slate-500 text-xs">
+            <p className="font-semibold text-slate-700">最新のサンプル</p>
+            <ul className="mt-2 space-y-2">
+              {firstCyclingWorkout ? (
+                <li>
+                  🚴 {formatDateTime(firstCyclingWorkout.performedAt)} —{" "}
+                  {formatCyclingSummary(firstCyclingWorkout)}
+                </li>
+              ) : null}
+              {firstStrengthWorkout ? (
+                <li>
+                  🏋️ {formatDateTime(firstStrengthWorkout.performedAt)} —{" "}
+                  {formatStrengthSummary(firstStrengthWorkout)}
+                </li>
+              ) : null}
+              {firstCyclingWorkout || firstStrengthWorkout ? null : (
+                <li>サンプルがありません。</li>
+              )}
+            </ul>
+          </div>
+        </article>
+      </section>
+    </main>
   );
 }
