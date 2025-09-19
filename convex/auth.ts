@@ -40,9 +40,11 @@ if (appleClientId && appleTeamId && appleKeyId && applePrivateKey) {
   providers.push(
     Apple({
       clientId: appleClientId,
-      teamId: appleTeamId,
-      keyId: appleKeyId,
-      privateKey: applePrivateKey,
+      clientSecret: {
+        teamId: appleTeamId,
+        privateKey: applePrivateKey,
+        keyId: appleKeyId,
+      },
     })
   );
 }
