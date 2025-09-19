@@ -9,14 +9,6 @@ function readEnv(name: string) {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function readApplePrivateKey(rawKey: string | null) {
-  if (!rawKey) {
-    return null;
-  }
-
-  return rawKey.replace(/\\n/g, "\n");
-}
-
 const providers: AuthProviderConfig[] = [];
 
 const googleClientId = readEnv("GOOGLE_CLIENT_ID");
@@ -32,19 +24,13 @@ if (googleClientId && googleClientSecret) {
 }
 
 const appleClientId = readEnv("APPLE_CLIENT_ID");
-const appleTeamId = readEnv("APPLE_TEAM_ID");
-const appleKeyId = readEnv("APPLE_KEY_ID");
-const applePrivateKey = readApplePrivateKey(readEnv("APPLE_PRIVATE_KEY"));
+const appleClientSecret = readEnv("APPLE_CLIENT_SECRET");
 
-if (appleClientId && appleTeamId && appleKeyId && applePrivateKey) {
+if (appleClientId && appleClientSecret) {
   providers.push(
     Apple({
       clientId: appleClientId,
-      clientSecret: {
-        teamId: appleTeamId,
-        privateKey: applePrivateKey,
-        keyId: appleKeyId,
-      },
+      clientSecret: appleClientSecret,
     })
   );
 }
