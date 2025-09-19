@@ -5,7 +5,28 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL;
+
 export default function ProfilePage() {
+  if (!CONVEX_URL) {
+    return (
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-12">
+        <h1 className="font-semibold text-2xl text-slate-900">
+          Convex の設定が必要です
+        </h1>
+        <p className="text-slate-600 text-sm">
+          この画面を利用するには `NEXT_PUBLIC_CONVEX_URL`
+          などの環境変数を設定し、 Convex
+          クライアントを有効化してください。設定後に再度ビルドすると、このページが有効になります。
+        </p>
+      </main>
+    );
+  }
+
+  return <ProfilePageContent />;
+}
+
+function ProfilePageContent() {
   const profile = useQuery(api.users.getCurrentProfile);
   const isAuthLoading = profile === undefined;
   const isAuthenticated = profile != null;
